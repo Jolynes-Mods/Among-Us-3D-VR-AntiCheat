@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace AntiCheat.Managers
 {
@@ -15,7 +16,6 @@ namespace AntiCheat.Managers
         private static int Category;
         private static int WhitelistPage;
         private static int BlacklistPage;
-        private static bool WhitelistLoaded;
         private static GUIStyle WindowStyle;
         private static GUIStyle TitleStyle;
         private static GUIStyle SectionStyle;
@@ -41,7 +41,7 @@ namespace AntiCheat.Managers
         private static readonly Dictionary<string, float> Animations = new Dictionary<string, float>();
         private static readonly Dictionary<string, WhitelistEntry> Whitelist = new Dictionary<string, WhitelistEntry>(StringComparer.Ordinal);
 
-        private static string WhitelistPath => Path.Combine(MelonEnvironment.UserDataDirectory, "AntiCheatWhitelist.dat");
+        internal static bool Binding;
 
         private sealed class WhitelistEntry
         {
@@ -100,7 +100,7 @@ namespace AntiCheat.Managers
             if (!Settings.GUIEnabled) return;
             if (!Settings.IsHost) Settings.AntiCheatEnabled = false;
 
-            EnsureWhitelistLoaded();
+            Commands.LoadData();
             Initialize();
 
             int Rows = Mathf.CeilToInt(Modules.Length / 2f);
@@ -130,16 +130,23 @@ namespace AntiCheat.Managers
 
         internal static void RememberWhitelist(PlayerState Player, string UserId)
         {
-            EnsureWhitelistLoaded();
+            Commands.LoadData();
             Whitelist[UserId] = new WhitelistEntry(UserId, Player.NetworkName.Value, Helpers.GetPlayerPlatform(Player));
-            SaveWhitelist();
+            Commands.SaveData();
         }
 
         internal static void ForgetWhitelist(string UserId)
         {
-            EnsureWhitelistLoaded();
+            Commands.LoadData();
             if (!Whitelist.Remove(UserId)) return;
-            SaveWhitelist();
+            Commands.SaveData();
+        }
+
+        internal static void SetKeybind(Key Key)
+        {
+            Settings.GUIKey = Key;
+            Binding = false;
+            Commands.SaveData();
         }
 
         private static void DrawWindow(int WindowId)
@@ -158,6 +165,7 @@ namespace AntiCheat.Managers
             DrawCategory("Anti-Cheat", 0, 62f);
             DrawCategory("Whitelist", 1, 104f);
             DrawCategory("Blacklist", 2, 146f);
+            if (GUI.Button(new Rect(22f, Window.height - 56f, 134f, 34f), Binding ? "Press a key" : $"Menu key: {Settings.GUIKey}", CategoryStyle)) Binding = !Binding;
 
             GUI.BeginGroup(new Rect(178f, 49f, Window.width - 192f, Window.height - 63f));
             if (Category == 0) DrawAntiCheat();
@@ -203,7 +211,7 @@ namespace AntiCheat.Managers
 
             foreach (PlayerState Player in GameReferences.Spawn.ActivePlayerStates)
             {
-                if (Player == null || Player == GameReferences.Rig.PState) continue;
+                if (Player == null) continue;
 
                 string UserId = GameReferences.Runner.GetPlayerUserId(Player.PlayerId);
                 string Platform = Helpers.GetPlayerPlatform(Player);
@@ -235,34 +243,51 @@ namespace AntiCheat.Managers
             GUI.Label(new Rect(2f, 2f, 300f, 28f), "Blacklist", TitleStyle);
             GUI.Label(new Rect(2f, 33f, 500f, 20f), $"Loaded: {Commands.GlobalBlacklistCount} globally blacklisted players", DescriptionStyle);
 
-            bool Persist = DrawLargeToggle(new Rect(0f, 62f, 358f, 60f), "Persist blacklist", "Remember blacklisted players after closing the game.", "PersistBlacklist", Settings.PersistBlacklist, true);
+            bool Persist = DrawLargeToggle(new Rect(0f, 62f, 358f, 60f), "Persist blacklist", "Remember blacklisted players after closing the game.", "PersistBlacklist", Settings.PersistBlacklist, Settings.IsHost);
             if (Persist != Settings.PersistBlacklist) Commands.SetBlacklistPersistence(Persist);
 
-            Settings.BlacklistOnDetect = DrawLargeToggle(new Rect(370f, 62f, 358f, 60f), "Blacklist on detect", "Add detected players to your local blacklist.", "BlacklistOnDetect", Settings.BlacklistOnDetect, true);
+            Settings.BlacklistOnDetect = DrawLargeToggle(new Rect(370f, 62f, 358f, 60f), "Blacklist on detect", "Add detected players to your local blacklist.", "BlacklistOnDetect", Settings.BlacklistOnDetect, Settings.IsHost);
             List<KeyValuePair<string, (string Username, string Platform, string Reason)>> Players = new List<KeyValuePair<string, (string Username, string Platform, string Reason)>>(Commands.GetBlacklistedPlayers());
-            int PageCount = Mathf.Max(1, Mathf.CeilToInt(Players.Count / 10f));
+            int PageCount = Mathf.Max(1, Mathf.CeilToInt(Players.Count / 5f));
             BlacklistPage = Mathf.Clamp(BlacklistPage, 0, PageCount - 1);
-            int Start = BlacklistPage * 10;
-            int End = Mathf.Min(Start + 10, Players.Count);
+            int Start = BlacklistPage * 5;
+            int End = Mathf.Min(Start + 5, Players.Count);
 
-            GUI.Label(new Rect(2f, 136f, 300f, 22f), "Local blacklist", SectionStyle);
+            GUI.Label(new Rect(2f, 136f, 300f, 22f), "Lobby players", SectionStyle);
+            GUI.Label(new Rect(372f, 136f, 300f, 22f), "Local blacklist", SectionStyle);
 
-            if (Players.Count == 0) GUI.Label(new Rect(2f, 168f, 500f, 24f), "No players are locally blacklisted.", DescriptionStyle);
+            if (GameReferences.Spawn != null && GameReferences.Rig != null && GameReferences.Runner != null)
+            {
+                int LobbyIndex = 0;
+
+                foreach (PlayerState Player in GameReferences.Spawn.ActivePlayerStates)
+                {
+                    if (Player == null || Player == GameReferences.Rig.PState) continue;
+
+                    DrawBlacklistLobbyPlayer(new Rect(0f, 164f + LobbyIndex * 47f, 358f, 44f), Player);
+                    LobbyIndex++;
+                }
+            }
+
+            if (Players.Count == 0) GUI.Label(new Rect(374f, 168f, 330f, 24f), "No players are locally blacklisted.", DescriptionStyle);
 
             for (int Index = Start; Index < End; Index++)
-            {
-                int Position = Index - Start;
-                int Column = Position % 2;
-                int Row = Position / 2;
-                DrawBlacklistedPlayer(new Rect(Column * 370f, 164f + Row * 76f, 358f, 70f), Players[Index]);
-            }
+                DrawBlacklistedPlayer(new Rect(370f, 164f + (Index - Start) * 76f, 358f, 70f), Players[Index]);
 
             if (PageCount > 1)
             {
-                if (GUI.Button(new Rect(0f, 550f, 82f, 28f), "Previous", ButtonStyle) && BlacklistPage > 0) BlacklistPage--;
-                GUI.Label(new Rect(94f, 554f, 170f, 22f), $"Page {BlacklistPage + 1} of {PageCount}", DescriptionStyle);
-                if (GUI.Button(new Rect(276f, 550f, 82f, 28f), "Next", ButtonStyle) && BlacklistPage < PageCount - 1) BlacklistPage++;
+                if (GUI.Button(new Rect(370f, 550f, 82f, 28f), "Previous", ButtonStyle) && BlacklistPage > 0) BlacklistPage--;
+                GUI.Label(new Rect(464f, 554f, 170f, 22f), $"Page {BlacklistPage + 1} of {PageCount}", DescriptionStyle);
+                if (GUI.Button(new Rect(646f, 550f, 82f, 28f), "Next", ButtonStyle) && BlacklistPage < PageCount - 1) BlacklistPage++;
             }
+        }
+
+        private static void DrawBlacklistLobbyPlayer(Rect Area, PlayerState Player)
+        {
+            GUI.DrawTexture(Area, Area.Contains(Event.current.mousePosition) ? PanelHover : Panel);
+            GUI.Label(new Rect(Area.x + 10f, Area.y + 4f, Area.width - 94f, 18f), Player.NetworkName.Value, TextStyle);
+            GUI.Label(new Rect(Area.x + 10f, Area.y + 22f, Area.width - 94f, 18f), $"{Helpers.GetPlayerPlatform(Player)}  {GameReferences.Runner.GetPlayerUserId(Player.PlayerId)}", DescriptionStyle);
+            if (Settings.IsHost && GUI.Button(new Rect(Area.xMax - 78f, Area.y + 8f, 68f, 28f), "Blacklist", RemoveButtonStyle)) Commands.BlacklistPlayer(Player, "Manually blacklisted");
         }
 
         private static void DrawLobbyPlayer(Rect Area, PlayerState Player, string UserId, string Platform)
@@ -297,7 +322,7 @@ namespace AntiCheat.Managers
             GUI.Label(new Rect(Area.x + 10f, Area.y + 21f, Area.width - 94f, 18f), $"Platform: {Player.Value.Platform}", DescriptionStyle);
             GUI.Label(new Rect(Area.x + 10f, Area.y + 36f, Area.width - 94f, 18f), $"ID: {Player.Key}", DescriptionStyle);
             GUI.Label(new Rect(Area.x + 10f, Area.y + 51f, Area.width - 94f, 18f), $"Reason: {Player.Value.Reason}", WarningStyle);
-            if (GUI.Button(new Rect(Area.xMax - 78f, Area.y + 21f, 68f, 28f), "Remove", RemoveButtonStyle)) Commands.RemoveBlacklistedPlayer(Player.Key);
+            if (Settings.IsHost && GUI.Button(new Rect(Area.xMax - 78f, Area.y + 21f, 68f, 28f), "Remove", RemoveButtonStyle)) Commands.RemoveBlacklistedPlayer(Player.Key);
         }
 
         private static List<WhitelistEntry> GetOfflineWhitelist()
@@ -369,58 +394,34 @@ namespace AntiCheat.Managers
             if (GUI.Button(new Rect(22f, Position, 134f, 34f), Name, Style)) Category = Index;
         }
 
-        private static void EnsureWhitelistLoaded()
+        internal static void ReadWhitelist(BinaryReader Reader)
         {
-            if (WhitelistLoaded) return;
-            WhitelistLoaded = true;
-            if (!File.Exists(WhitelistPath)) return;
+            int Count = Reader.ReadInt32();
+            if (Count < 0 || Count > 10000) throw new InvalidDataException();
 
-            try
+            for (int Index = 0; Index < Count; Index++)
             {
-                using FileStream Stream = File.OpenRead(WhitelistPath);
-                using BinaryReader Reader = new BinaryReader(Stream);
-                int Count = Reader.ReadInt32();
-                if (Count < 0 || Count > 10000) throw new InvalidDataException();
+                string UserId = Reader.ReadString();
+                string Name = Reader.ReadString();
+                string Platform = Reader.ReadString();
 
-                for (int Index = 0; Index < Count; Index++)
+                if (!string.IsNullOrEmpty(UserId))
                 {
-                    string UserId = Reader.ReadString();
-                    string Name = Reader.ReadString();
-                    string Platform = Reader.ReadString();
-
-                    if (!string.IsNullOrEmpty(UserId))
-                    {
-                        Whitelist[UserId] = new WhitelistEntry(UserId, Name, Platform);
-                        Commands.RestoreWhitelistedPlayer(UserId);
-                    }
+                    Whitelist[UserId] = new WhitelistEntry(UserId, Name, Platform);
+                    Commands.RestoreWhitelistedPlayer(UserId);
                 }
-            }
-            catch (Exception Exception)
-            {
-                Whitelist.Clear();
-                MelonLogger.Error($"Failed to load whitelist: {Exception.Message}");
             }
         }
 
-        private static void SaveWhitelist()
+        internal static void WriteWhitelist(BinaryWriter Writer)
         {
-            try
-            {
-                Directory.CreateDirectory(MelonEnvironment.UserDataDirectory);
-                using FileStream Stream = File.Create(WhitelistPath);
-                using BinaryWriter Writer = new BinaryWriter(Stream);
-                Writer.Write(Whitelist.Count);
+            Writer.Write(Whitelist.Count);
 
-                foreach (WhitelistEntry Entry in Whitelist.Values)
-                {
-                    Writer.Write(Entry.UserId ?? string.Empty);
-                    Writer.Write(Entry.Name ?? string.Empty);
-                    Writer.Write(Entry.Platform ?? string.Empty);
-                }
-            }
-            catch (Exception Exception)
+            foreach (WhitelistEntry Entry in Whitelist.Values)
             {
-                MelonLogger.Error($"Failed to save whitelist: {Exception.Message}");
+                Writer.Write(Entry.UserId ?? string.Empty);
+                Writer.Write(Entry.Name ?? string.Empty);
+                Writer.Write(Entry.Platform ?? string.Empty);
             }
         }
 

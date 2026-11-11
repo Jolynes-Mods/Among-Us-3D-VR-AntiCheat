@@ -17,8 +17,6 @@ namespace AntiCheat.Managers
         private static readonly HashSet<string> WhitelistedPlayers = new HashSet<string>();
         private static readonly SortedDictionary<string, (string Username, string Platform, string Reason)> BlacklistedPlayers = new SortedDictionary<string, (string Username, string Platform, string Reason)>(StringComparer.Ordinal);
         private static readonly HashSet<string> GloballyBlacklistedPlayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        private static bool BlacklistPersistenceLoaded;
-        private static string BlacklistSettingsPath => Path.Combine(MelonEnvironment.UserDataDirectory, "AntiCheatBlacklistSettings.dat");
         private static bool DoorCorrectionPending;
 
         internal static void KickPlayerViaAntiCheat(int player, string reason, bool blacklist)
@@ -36,7 +34,7 @@ namespace AntiCheat.Managers
             if (GameReferences.Moderation == null) GameReferences.ResetReferences();
             GameReferences.Moderation!.RPC_KickPlayer(cheater);
             yield return new WaitForSeconds(0.25f);
-            if (((PlayerRef)cheater).IsValid) GameReferences.Runner!.Disconnect(cheater);
+            GameReferences.Runner!.Disconnect(cheater);
         }
 
 
@@ -97,7 +95,7 @@ namespace AntiCheat.Managers
         {
             if (!Settings.IsHost || Player == null || GameReferences.Runner == null) return false;
 
-            InitializeBlacklist();
+            LoadData();
             string UserId = GameReferences.Runner.GetPlayerUserId(Player.PlayerId);
             return !string.IsNullOrEmpty(UserId) && (BlacklistedPlayers.ContainsKey(UserId) || GloballyBlacklistedPlayers.Contains(Hash(UserId)));
         }
@@ -129,14 +127,14 @@ namespace AntiCheat.Managers
         {
             if (!Settings.IsHost || Player == null || Player == GameReferences.Rig!.PState || GameReferences.Runner == null) return;
 
-            InitializeBlacklist();
+            LoadData();
             string UserId = GameReferences.Runner.GetPlayerUserId(Player.PlayerId);
             if (string.IsNullOrEmpty(UserId)) return;
 
             BlacklistedPlayers[UserId] = (Player.NetworkName.Value, Helpers.GetPlayerPlatform(Player), Reason);
             WhitelistedPlayers.Remove(Hash(UserId));
             GUIManager.ForgetWhitelist(UserId);
-            SaveBlacklist();
+            SaveData();
 
             if (Kick) KickPlayerViaAntiCheat(Player.PlayerId, Reason, false);
         }
@@ -144,79 +142,50 @@ namespace AntiCheat.Managers
 
 
 
-        private static bool BlacklistLoaded;
-        private static string BlacklistPath => Path.Combine(MelonEnvironment.UserDataDirectory, "AntiCheatBlacklist.dat");
+        private static bool DataLoaded;
+        private static string DataPath => Path.Combine(MelonEnvironment.UserDataDirectory, "AntiCheat.dat");
 
         internal static int GlobalBlacklistCount => GloballyBlacklistedPlayers.Count;
 
         internal static IEnumerable<KeyValuePair<string, (string Username, string Platform, string Reason)>> GetBlacklistedPlayers()
         {
-            InitializeBlacklist();
+            LoadData();
             return BlacklistedPlayers;
         }
 
         internal static void RemoveBlacklistedPlayer(string UserId)
         {
-            EnsureBlacklistLoaded();
-            if (!BlacklistedPlayers.Remove(UserId)) return;
-            SaveBlacklist();
+            if (!Settings.IsHost || !BlacklistedPlayers.Remove(UserId)) return;
+            SaveData();
         }
 
         internal static void SetBlacklistPersistence(bool Enabled)
         {
-            InitializeBlacklist();
+            if (!Settings.IsHost) return;
             Settings.PersistBlacklist = Enabled;
-
-            try
-            {
-                Directory.CreateDirectory(MelonEnvironment.UserDataDirectory);
-                using FileStream Stream = File.Create(BlacklistSettingsPath);
-                using BinaryWriter Writer = new BinaryWriter(Stream);
-                Writer.Write(Enabled);
-            }
-            catch (Exception Exception)
-            {
-                MelonLogger.Error($"Failed to save blacklist settings: {Exception.Message}");
-            }
-
-            if (!Enabled) return;
-            EnsureBlacklistLoaded();
-            SaveBlacklist();
+            SaveData();
         }
 
 
-        internal static void InitializeBlacklist()
+        internal static void LoadData()
         {
-            if (BlacklistPersistenceLoaded) return;
-            BlacklistPersistenceLoaded = true;
+            if (DataLoaded) return;
+            DataLoaded = true;
+
+            if (!File.Exists(DataPath))
+            {
+                ImportOldData();
+                return;
+            }
 
             try
             {
-                if (File.Exists(BlacklistSettingsPath))
-                {
-                    using FileStream Stream = File.OpenRead(BlacklistSettingsPath);
-                    using BinaryReader Reader = new BinaryReader(Stream);
-                    Settings.PersistBlacklist = Reader.ReadBoolean();
-                }
-            }
-            catch (Exception Exception)
-            {
-                MelonLogger.Error($"Failed to load blacklist settings: {Exception.Message}");
-            }
-
-            EnsureBlacklistLoaded();
-        }
-
-        private static void EnsureBlacklistLoaded()
-        {
-            if (BlacklistLoaded || !Settings.PersistBlacklist) return;
-            BlacklistLoaded = true;
-            if (!File.Exists(BlacklistPath)) return;
-
-            try
-            {
-                using FileStream Stream = File.OpenRead(BlacklistPath);
+                using FileStream Stream = File.OpenRead(DataPath);
                 using BinaryReader Reader = new BinaryReader(Stream);
+                int Key = Reader.ReadInt32();
+                if (Key > 0 && Key < (int)UnityEngine.InputSystem.Key.IMESelected) Settings.GUIKey = (UnityEngine.InputSystem.Key)Key;
+                Settings.PersistBlacklist = Reader.ReadBoolean();
+
                 int Count = Reader.ReadInt32();
                 if (Count < 0 || Count > 10000) throw new InvalidDataException();
 
@@ -228,35 +197,92 @@ namespace AntiCheat.Managers
                     string Reason = Reader.ReadString();
                     if (!string.IsNullOrEmpty(UserId)) BlacklistedPlayers[UserId] = (Username, Platform, Reason);
                 }
+
+                GUIManager.ReadWhitelist(Reader);
             }
             catch (Exception Exception)
             {
-                MelonLogger.Error($"Failed to load blacklist: {Exception.Message}");
+                MelonLogger.Error($"Failed to load data: {Exception.Message}");
             }
         }
 
-        private static void SaveBlacklist()
+        private static void ImportOldData()
         {
-            if (!Settings.PersistBlacklist) return;
+            string Folder = MelonEnvironment.UserDataDirectory;
+            string KeybindPath = Path.Combine(Folder, "AntiCheatKeybind.dat");
+            string SettingsPath = Path.Combine(Folder, "AntiCheatBlacklistSettings.dat");
+            string BlacklistPath = Path.Combine(Folder, "AntiCheatBlacklist.dat");
+            string WhitelistPath = Path.Combine(Folder, "AntiCheatWhitelist.dat");
+            if (!File.Exists(KeybindPath) && !File.Exists(SettingsPath) && !File.Exists(BlacklistPath) && !File.Exists(WhitelistPath)) return;
 
             try
             {
-                Directory.CreateDirectory(MelonEnvironment.UserDataDirectory);
-                using FileStream Stream = File.Create(BlacklistPath);
-                using BinaryWriter Writer = new BinaryWriter(Stream);
-                Writer.Write(BlacklistedPlayers.Count);
+                if (File.Exists(KeybindPath) && int.TryParse(File.ReadAllText(KeybindPath), out int Key) && Key > 0 && Key < (int)UnityEngine.InputSystem.Key.IMESelected)
+                    Settings.GUIKey = (UnityEngine.InputSystem.Key)Key;
 
-                foreach (KeyValuePair<string, (string Username, string Platform, string Reason)> Player in BlacklistedPlayers)
+                if (File.Exists(SettingsPath))
                 {
-                    Writer.Write(Player.Key ?? string.Empty);
-                    Writer.Write(Player.Value.Username ?? string.Empty);
-                    Writer.Write(Player.Value.Platform ?? string.Empty);
-                    Writer.Write(Player.Value.Reason ?? string.Empty);
+                    using BinaryReader Reader = new BinaryReader(File.OpenRead(SettingsPath));
+                    Settings.PersistBlacklist = Reader.ReadBoolean();
+                }
+
+                if (File.Exists(BlacklistPath))
+                {
+                    using BinaryReader Reader = new BinaryReader(File.OpenRead(BlacklistPath));
+                    int Count = Reader.ReadInt32();
+                    if (Count < 0 || Count > 10000) throw new InvalidDataException();
+
+                    for (int Index = 0; Index < Count; Index++)
+                    {
+                        string UserId = Reader.ReadString();
+                        string Username = Reader.ReadString();
+                        string Platform = Reader.ReadString();
+                        string Reason = Reader.ReadString();
+                        if (!string.IsNullOrEmpty(UserId)) BlacklistedPlayers[UserId] = (Username, Platform, Reason);
+                    }
+                }
+
+                if (File.Exists(WhitelistPath))
+                {
+                    using BinaryReader Reader = new BinaryReader(File.OpenRead(WhitelistPath));
+                    GUIManager.ReadWhitelist(Reader);
                 }
             }
             catch (Exception Exception)
             {
-                MelonLogger.Error($"Failed to save blacklist: {Exception.Message}");
+                MelonLogger.Error($"Failed to import old data: {Exception.Message}");
+            }
+
+            SaveData();
+        }
+
+        internal static void SaveData()
+        {
+            try
+            {
+                Directory.CreateDirectory(MelonEnvironment.UserDataDirectory);
+                using FileStream Stream = File.Create(DataPath);
+                using BinaryWriter Writer = new BinaryWriter(Stream);
+                Writer.Write((int)Settings.GUIKey);
+                Writer.Write(Settings.PersistBlacklist);
+                Writer.Write(Settings.PersistBlacklist ? BlacklistedPlayers.Count : 0);
+
+                if (Settings.PersistBlacklist)
+                {
+                    foreach (KeyValuePair<string, (string Username, string Platform, string Reason)> Player in BlacklistedPlayers)
+                    {
+                        Writer.Write(Player.Key ?? string.Empty);
+                        Writer.Write(Player.Value.Username ?? string.Empty);
+                        Writer.Write(Player.Value.Platform ?? string.Empty);
+                        Writer.Write(Player.Value.Reason ?? string.Empty);
+                    }
+                }
+
+                GUIManager.WriteWhitelist(Writer);
+            }
+            catch (Exception Exception)
+            {
+                MelonLogger.Error($"Failed to save data: {Exception.Message}");
             }
         }
 

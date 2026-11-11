@@ -20,6 +20,7 @@ namespace AntiCheat
             AntiCheatMain.ResetAntiCheat(true);
             AutoUpdateManager.Check();
             Logger.Msg("Anti-Cheat loaded");
+            Logger.Msg($"Anti-Cheat UI toggle: {Settings.GUIKey}");
         }
 
 
@@ -38,7 +39,16 @@ namespace AntiCheat
 
         public override void OnUpdate()
         {
-            if (Keyboard.current.leftCtrlKey.wasPressedThisFrame)
+            if (GUIManager.Binding)
+            {
+                for (Key key = Key.Space; key < Key.IMESelected; key++)
+                {
+                    if (!Keyboard.current[key].wasPressedThisFrame) continue;
+                    GUIManager.SetKeybind(key);
+                    break;
+                }
+            }
+            else if (Keyboard.current[Settings.GUIKey].wasPressedThisFrame)
                 Settings.GUIEnabled = !Settings.GUIEnabled;
 
             if (Settings.InGame && GameReferences.Rig == null) GameReferences.ResetReferences();
@@ -53,6 +63,8 @@ namespace AntiCheat
  * Kicks cheaters with anti kick
  * Kill verification
  * Infect verification
+ * Stun Powerup verification
+ * Guard Powerup verification
  * SheriffVote verification
  * Meeting verification
  * Body Report verification

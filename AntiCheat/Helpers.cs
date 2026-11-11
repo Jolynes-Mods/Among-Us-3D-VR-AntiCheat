@@ -22,6 +22,7 @@ namespace AntiCheat
         public static string GetPlayerPlatform(PlayerState player)
         {
             string UserId = GameReferences.Runner!.GetPlayerUserId(player.PlayerId);
+            if (string.IsNullOrEmpty(UserId)) return "unknown";
 
             if (UserId.StartsWith("Steam") && player.Is3DPlayer)
                 return "Steam 3D";

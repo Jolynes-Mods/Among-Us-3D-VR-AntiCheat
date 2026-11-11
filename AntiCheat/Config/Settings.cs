@@ -1,4 +1,6 @@
-﻿namespace AntiCheat.Config
+﻿using UnityEngine.InputSystem;
+
+namespace AntiCheat.Config
 {
     internal class Settings
     {
@@ -11,6 +13,7 @@
         internal static bool IsHost { get; set; } = false;
         internal static bool AntiCheatEnabled { get; set; } = true;
         internal static bool GUIEnabled { get; set; } = false;
+        internal static Key GUIKey { get; set; } = Key.LeftCtrl;
 
 
         internal static bool NoCooldown { get; set; } = false;

@@ -138,7 +138,7 @@ namespace AntiCheat.Managers.AntiCheat
         internal static void ResetAntiCheat(bool sceneReset = false)
         {
             Logger.DebugMsg("Resetting Anti-Cheat");
-            Commands.InitializeBlacklist();
+            Commands.LoadData();
             MeetingsCalled.Clear();
             PositionViolations.Clear();
             SpeedDetections.Clear();
