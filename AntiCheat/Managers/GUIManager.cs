@@ -248,46 +248,29 @@ namespace AntiCheat.Managers
 
             Settings.BlacklistOnDetect = DrawLargeToggle(new Rect(370f, 62f, 358f, 60f), "Blacklist on detect", "Add detected players to your local blacklist.", "BlacklistOnDetect", Settings.BlacklistOnDetect, Settings.IsHost);
             List<KeyValuePair<string, (string Username, string Platform, string Reason)>> Players = new List<KeyValuePair<string, (string Username, string Platform, string Reason)>>(Commands.GetBlacklistedPlayers());
-            int PageCount = Mathf.Max(1, Mathf.CeilToInt(Players.Count / 5f));
+            int PageCount = Mathf.Max(1, Mathf.CeilToInt(Players.Count / 10f));
             BlacklistPage = Mathf.Clamp(BlacklistPage, 0, PageCount - 1);
-            int Start = BlacklistPage * 5;
-            int End = Mathf.Min(Start + 5, Players.Count);
+            int Start = BlacklistPage * 10;
+            int End = Mathf.Min(Start + 10, Players.Count);
 
-            GUI.Label(new Rect(2f, 136f, 300f, 22f), "Lobby players", SectionStyle);
-            GUI.Label(new Rect(372f, 136f, 300f, 22f), "Local blacklist", SectionStyle);
+            GUI.Label(new Rect(2f, 136f, 300f, 22f), "Local blacklist", SectionStyle);
 
-            if (GameReferences.Spawn != null && GameReferences.Rig != null && GameReferences.Runner != null)
-            {
-                int LobbyIndex = 0;
-
-                foreach (PlayerState Player in GameReferences.Spawn.ActivePlayerStates)
-                {
-                    if (Player == null || Player == GameReferences.Rig.PState) continue;
-
-                    DrawBlacklistLobbyPlayer(new Rect(0f, 164f + LobbyIndex * 47f, 358f, 44f), Player);
-                    LobbyIndex++;
-                }
-            }
-
-            if (Players.Count == 0) GUI.Label(new Rect(374f, 168f, 330f, 24f), "No players are locally blacklisted.", DescriptionStyle);
+            if (Players.Count == 0) GUI.Label(new Rect(2f, 168f, 500f, 24f), "No players are locally blacklisted.", DescriptionStyle);
 
             for (int Index = Start; Index < End; Index++)
-                DrawBlacklistedPlayer(new Rect(370f, 164f + (Index - Start) * 76f, 358f, 70f), Players[Index]);
+            {
+                int Position = Index - Start;
+                int Column = Position % 2;
+                int Row = Position / 2;
+                DrawBlacklistedPlayer(new Rect(Column * 370f, 164f + Row * 76f, 358f, 70f), Players[Index]);
+            }
 
             if (PageCount > 1)
             {
-                if (GUI.Button(new Rect(370f, 550f, 82f, 28f), "Previous", ButtonStyle) && BlacklistPage > 0) BlacklistPage--;
-                GUI.Label(new Rect(464f, 554f, 170f, 22f), $"Page {BlacklistPage + 1} of {PageCount}", DescriptionStyle);
-                if (GUI.Button(new Rect(646f, 550f, 82f, 28f), "Next", ButtonStyle) && BlacklistPage < PageCount - 1) BlacklistPage++;
+                if (GUI.Button(new Rect(0f, 550f, 82f, 28f), "Previous", ButtonStyle) && BlacklistPage > 0) BlacklistPage--;
+                GUI.Label(new Rect(94f, 554f, 170f, 22f), $"Page {BlacklistPage + 1} of {PageCount}", DescriptionStyle);
+                if (GUI.Button(new Rect(276f, 550f, 82f, 28f), "Next", ButtonStyle) && BlacklistPage < PageCount - 1) BlacklistPage++;
             }
-        }
-
-        private static void DrawBlacklistLobbyPlayer(Rect Area, PlayerState Player)
-        {
-            GUI.DrawTexture(Area, Area.Contains(Event.current.mousePosition) ? PanelHover : Panel);
-            GUI.Label(new Rect(Area.x + 10f, Area.y + 4f, Area.width - 94f, 18f), Player.NetworkName.Value, TextStyle);
-            GUI.Label(new Rect(Area.x + 10f, Area.y + 22f, Area.width - 94f, 18f), $"{Helpers.GetPlayerPlatform(Player)}  {GameReferences.Runner.GetPlayerUserId(Player.PlayerId)}", DescriptionStyle);
-            if (Settings.IsHost && GUI.Button(new Rect(Area.xMax - 78f, Area.y + 8f, 68f, 28f), "Blacklist", RemoveButtonStyle)) Commands.BlacklistPlayer(Player, "Manually blacklisted");
         }
 
         private static void DrawLobbyPlayer(Rect Area, PlayerState Player, string UserId, string Platform)

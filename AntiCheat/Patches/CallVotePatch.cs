@@ -14,6 +14,8 @@ public static class CallVotePatch
     {
         if (Settings.IsHost && Settings.AntiCheatEnabled && Settings.CallMeetingValidateModule)
         {
+            if (info.Source.IsNone || sourcePlayer == GameReferences.Runner?.LocalPlayer || info.Source == GameReferences.Runner?.LocalPlayer) return true;
+
             PlayerState caller = Helpers.GetPlayerstateFromID(sourcePlayer.PlayerId);
 
             if (!AntiCheatMain.VerifyMeeting(caller, ref info))
@@ -39,6 +41,8 @@ public static class CallVotePatch2
     {
         if (Settings.IsHost && Settings.AntiCheatEnabled && Settings.CallBodyReportValidateModule)
         {
+            if (info.Source.IsNone || sourcePlayer == GameReferences.Runner?.LocalPlayer || info.Source == GameReferences.Runner?.LocalPlayer) return true;
+
             PlayerState caller = Helpers.GetPlayerstateFromID(sourcePlayer.PlayerId);
             PlayerState body = Helpers.GetPlayerstateFromID(foundPlayer);
 

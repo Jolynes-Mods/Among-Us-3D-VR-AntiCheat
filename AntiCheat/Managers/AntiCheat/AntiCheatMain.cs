@@ -250,20 +250,23 @@ namespace AntiCheat.Managers.AntiCheat
             if (!caller.IsAlive)
                 return false;
 
-            if (GameReferences.Sabotage!.ActiveSabotageIndex != -1)
+            if (GameReferences.Button == null || GameReferences.GameState == null) GameReferences.ResetReferences();
+            if (GameReferences.Button == null || GameReferences.GameState == null) return true;
+
+            if (GameReferences.Button._inSabotage)
                 return false;
 
-            if (!GameReferences.GameState!.InTaskState() ||
+            if (!GameReferences.GameState.InTaskState() ||
                 GameReferences.GameState.GameModeStateValue.GameMode == GameModes.Infection)
                 return false;
 
             MeetingsCalled.TryGetValue(info.Source.PlayerId, out int called);
 
-            if (called >= GameReferences.Button!._maxAllowedCalls)
+            if (called >= GameReferences.Button._maxAllowedCalls)
                 return false;
 
             if ((caller.LocomotionPlayer.RigidbodyPosition -
-                 GameReferences.Button._buttonCollider.transform.position).sqrMagnitude > 15f)
+                 GameReferences.Button._buttonCollider.transform.position).sqrMagnitude > 100f)
                 return false;
 
             MeetingsCalled[info.Source.PlayerId] = called + 1;
