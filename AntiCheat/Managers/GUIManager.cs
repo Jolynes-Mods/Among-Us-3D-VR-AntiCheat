@@ -211,7 +211,7 @@ namespace AntiCheat.Managers
 
             foreach (PlayerState Player in GameReferences.Spawn.ActivePlayerStates)
             {
-                if (Player == null) continue;
+                if (Player == null || Player == GameReferences.Rig.PState) continue;
 
                 string UserId = GameReferences.Runner.GetPlayerUserId(Player.PlayerId);
                 string Platform = Helpers.GetPlayerPlatform(Player);
